@@ -407,9 +407,7 @@ func captureHandshake(monitorInterface string, target Network) string {
 		log.Fatalf("[-] Failed to start capture: %v", err)
 	}
 
-	// Wait a moment for airodump to start and switch channel
-	time.Sleep(3 * time.Second)
-
+	// Start deauth immediately (removed delay) for concurrency
 	// Continuous deauth loop until handshake is captured
 	handshakeDetected := make(chan bool, 1)
 	stopDeauth := make(chan bool, 1)
