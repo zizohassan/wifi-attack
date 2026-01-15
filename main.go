@@ -144,12 +144,20 @@ func enableMonitorMode(interfaceName string) {
 }
 
 func scanNetworks(monitorInterface string) []Network {
-	fmt.Println("\n[+] Scanning networks (press Ctrl+C to stop)...")
+	fmt.Println("\n[+] Scanning networks...")
+	fmt.Println("[i] Press 's' and Enter to stop scanning when ready")
 
-	// Temp file prefix
-	tmpPrefix := "/tmp/wifi_scan"
-	// Cleanup previous scans just in case
-	os.RemoveAll(tmpPrefix + "-01.csv")
+	// Local file prefix
+	cwd, _ := os.Getwd()
+	tmpPrefix := cwd + "/wifi_scan"
+
+	// Cleanup previous scans
+	files, _ := os.ReadDir(cwd)
+	for _, f := range files {
+		if strings.HasPrefix(f.Name(), "wifi_scan-") {
+			os.Remove(f.Name())
+		}
+	}
 
 	// Run airodump-ng in background, outputting to CSV
 	cmd := exec.Command("sudo", "airodump-ng",
@@ -157,11 +165,7 @@ func scanNetworks(monitorInterface string) []Network {
 		"-w", tmpPrefix,
 		monitorInterface)
 
-	// Don't need to pipe stdout for data anymore, just let it show progress or suppress it
-	// For better UX during scan, we might want to suppress it or show a spinner.
-	// But airodump-ng writes to TTY. Let's redirect to /dev/null to keep our UI clean
-	// or let it print if the user wants to see it?
-	// The original code printed "Scanning...". Let's suppress airodump TTY output so we don't mess up our UI.
+	// Suppress output
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 
@@ -169,26 +173,15 @@ func scanNetworks(monitorInterface string) []Network {
 		log.Fatal("Error starting scan: ", err)
 	}
 
-	// Show a standardized progress bar or simple dots
-	done := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				fmt.Print(".")
-				time.Sleep(1 * time.Second)
-			}
+	// Wait for user input to stop
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if text == "s" || text == "S" {
+			break
 		}
-	}()
-
-	// Let it run for 10 seconds to gather networks
-	time.Sleep(10 * time.Second)
-
-	// Stop the spinner
-	done <- true
-	fmt.Println() // Newline
+		fmt.Println("[!] Press 's' and Enter to stop scanning")
+	}
 
 	// Kill the process
 	cmd.Process.Kill()
@@ -196,9 +189,13 @@ func scanNetworks(monitorInterface string) []Network {
 
 	// Parse the CSV
 	csvFile := tmpPrefix + "-01.csv"
+
+	// Wait a moment for file write to finish
+	time.Sleep(1 * time.Second)
+
 	networks, err := parseAirodumpCSV(csvFile)
 	if err != nil {
-		fmt.Printf("[-] Error parsing scan results: %v\n", err)
+		fmt.Printf("[-] Error parsing scan results (%s): %v\n", csvFile, err)
 		return []Network{}
 	}
 
