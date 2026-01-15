@@ -39,8 +39,7 @@ func main() {
 	}
 
 	// Step 3: Enable monitor mode
-	enableMonitorMode(interfaceName)
-	monitorInterface := interfaceName + "mon"
+	monitorInterface := enableMonitorMode(interfaceName)
 
 	// Step 4: Scan for networks
 	fmt.Println("\n[+] Scanning for networks...")
@@ -131,7 +130,7 @@ func selectInterface() string {
 	return interfaces[choice-1]
 }
 
-func enableMonitorMode(interfaceName string) {
+func enableMonitorMode(interfaceName string) string {
 	fmt.Printf("\n[+] Enabling monitor mode on %s...\n", interfaceName)
 
 	cmd := exec.Command("sudo", "airmon-ng", "start", interfaceName)
@@ -144,7 +143,22 @@ func enableMonitorMode(interfaceName string) {
 	}
 
 	time.Sleep(2 * time.Second)
-	fmt.Printf("[✓] Monitor mode enabled on %s\n", interfaceName)
+
+	// Check if interface name changed to *mon
+	// Some distros use wlan0mon, others keep wlan0
+	// We'll check iwconfig for the mon version
+	monName := interfaceName + "mon"
+
+	// Quick check if mon exists
+	cmdCheck := exec.Command("iwconfig", monName)
+	if err := cmdCheck.Run(); err == nil {
+		fmt.Printf("[✓] Monitor mode enabled on %s\n", monName)
+		return monName
+	}
+
+	// Fallback to original
+	fmt.Printf("[✓] Monitor mode enabled on %s (name unchanged)\n", interfaceName)
+	return interfaceName
 }
 
 func scanNetworks(monitorInterface string) []Network {
