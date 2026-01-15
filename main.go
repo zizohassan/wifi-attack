@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -73,6 +74,7 @@ func killConflictingProcesses() {
 	fmt.Println("[+] Checking for conflicting processes...")
 
 	cmd := exec.Command("sudo", "airmon-ng", "check", "kill")
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -88,6 +90,7 @@ func selectInterface() string {
 	fmt.Println("\n[+] Available network interfaces:")
 
 	cmd := exec.Command("iwconfig")
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	output, err := cmd.Output()
 	if err != nil {
 		log.Fatal("Error getting interfaces: ", err)
@@ -132,6 +135,7 @@ func enableMonitorMode(interfaceName string) {
 	fmt.Printf("\n[+] Enabling monitor mode on %s...\n", interfaceName)
 
 	cmd := exec.Command("sudo", "airmon-ng", "start", interfaceName)
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -168,9 +172,12 @@ func scanNetworks(monitorInterface string) []Network {
 		"--write-interval", "1",
 		monitorInterface)
 
-	// Suppress output
+	fmt.Printf("[CMD] %s\n", cmd.String())
+
+	// Capture stderr to debug startup failures
+	var stderr bytes.Buffer
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		log.Fatal("Error starting scan: ", err)
@@ -188,14 +195,32 @@ func scanNetworks(monitorInterface string) []Network {
 			case <-ticker.C:
 				// Clear screen
 				fmt.Print("\033[H\033[2J")
+				fmt.Printf("[CMD] %s\n", cmd.String()) // Reprint command for context
 				fmt.Println("\n[+] Scanning networks... (Press 's' and Enter to stop)")
 
-				// Try to parse CSV
-				currentNetworks, err := parseAirodumpCSV(csvFile)
-				if err == nil && len(currentNetworks) > 0 {
-					printNetworkTable(currentNetworks)
+				// Check process state
+				if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+					fmt.Println("[-] Scanner process died unexpectedly:")
+					fmt.Println(stderr.String())
+					return
+				}
+
+				// Check file existence
+				if _, err := os.Stat(csvFile); os.IsNotExist(err) {
+					fmt.Printf("[*] Waiting for scan file (%s)...\n", csvFile)
+					if stderr.Len() > 0 {
+						fmt.Printf("Debug output: %s\n", stderr.String())
+					}
 				} else {
-					fmt.Println("Waiting for data...")
+					// Try to parse CSV
+					currentNetworks, err := parseAirodumpCSV(csvFile)
+					if err != nil {
+						fmt.Printf("[!] Error parsing CSV: %v\n", err)
+					} else if len(currentNetworks) == 0 {
+						fmt.Println("[*] File found, but no networks parsed yet...")
+					} else {
+						printNetworkTable(currentNetworks)
+					}
 				}
 				fmt.Print("\n> ") // Input prompt
 			}
@@ -357,6 +382,8 @@ func captureHandshake(monitorInterface string, target Network) string {
 		"--bssid", target.BSSID,
 		monitorInterface)
 
+	fmt.Printf("[CMD] %s\n", cmd.String())
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -383,6 +410,7 @@ func deauthClients(monitorInterface, bssid string, count int) {
 		"-a", bssid,
 		monitorInterface)
 
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -397,6 +425,7 @@ func stopMonitorMode(monitorInterface string) {
 	fmt.Println("\n[+] Stopping monitor mode...")
 
 	cmd := exec.Command("sudo", "airmon-ng", "stop", monitorInterface)
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -409,6 +438,7 @@ func stopMonitorMode(monitorInterface string) {
 	// Restart NetworkManager
 	fmt.Println("[+] Restarting NetworkManager...")
 	cmd = exec.Command("sudo", "systemctl", "start", "NetworkManager")
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -427,6 +457,7 @@ func crackPassword(capFile string) {
 	if _, err := os.Stat(wordlist + ".gz"); err == nil {
 		fmt.Println("[+] Found gzipped rockyou.txt, extracting...")
 		cmd := exec.Command("gunzip", "-k", wordlist+".gz")
+		fmt.Printf("[CMD] %s\n", cmd.String())
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("[-] Error extracting wordlist: %v\n", err)
 			return
@@ -453,6 +484,7 @@ func crackPassword(capFile string) {
 		capFile,
 		"-w", wordlist)
 
+	fmt.Printf("[CMD] %s\n", cmd.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
