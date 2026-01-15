@@ -42,6 +42,9 @@ func main() {
 `)
 	fmt.Println("\033[0m")
 
+	// Step 0: Cleanup old handshake files
+	cleanupOldFiles()
+
 	// Step 1: Kill conflicting processes
 	killConflictingProcesses()
 
@@ -658,5 +661,25 @@ func crackPassword(capFile string) {
 
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("[-] Cracking error: %v\n", err)
+	}
+}
+
+func cleanupOldFiles() {
+	fmt.Println("[+] Cleaning up old handshake files...")
+	files, err := os.ReadDir(".")
+	if err != nil {
+		fmt.Printf("[-] Error reading directory: %v\n", err)
+		return
+	}
+
+	for _, file := range files {
+		if strings.HasPrefix(file.Name(), "handshake") {
+			err := os.Remove(file.Name())
+			if err != nil {
+				fmt.Printf("[-] Failed to delete %s: %v\n", file.Name(), err)
+			} else {
+				fmt.Printf("[✓] Deleted old file: %s\n", file.Name())
+			}
+		}
 	}
 }
