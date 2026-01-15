@@ -149,12 +149,13 @@ func scanNetworks(monitorInterface string) []Network {
 
 	// Local file prefix
 	cwd, _ := os.Getwd()
-	tmpPrefix := cwd + "/wifi_scan"
+	tmpPrefix := cwd + "/list"
+	csvFile := tmpPrefix + "-01.csv"
 
 	// Cleanup previous scans
 	files, _ := os.ReadDir(cwd)
 	for _, f := range files {
-		if strings.HasPrefix(f.Name(), "wifi_scan-") {
+		if strings.HasPrefix(f.Name(), "list-") {
 			os.Remove(f.Name())
 		}
 	}
@@ -163,6 +164,8 @@ func scanNetworks(monitorInterface string) []Network {
 	cmd := exec.Command("sudo", "airodump-ng",
 		"--output-format", "csv",
 		"-w", tmpPrefix,
+		// Update interval 1s
+		"--write-interval", "1",
 		monitorInterface)
 
 	// Suppress output
@@ -173,6 +176,32 @@ func scanNetworks(monitorInterface string) []Network {
 		log.Fatal("Error starting scan: ", err)
 	}
 
+	// UI Updater Goroutine
+	stopUI := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopUI:
+				return
+			case <-ticker.C:
+				// Clear screen
+				fmt.Print("\033[H\033[2J")
+				fmt.Println("\n[+] Scanning networks... (Press 's' and Enter to stop)")
+
+				// Try to parse CSV
+				currentNetworks, err := parseAirodumpCSV(csvFile)
+				if err == nil && len(currentNetworks) > 0 {
+					printNetworkTable(currentNetworks)
+				} else {
+					fmt.Println("Waiting for data...")
+				}
+				fmt.Print("\n> ") // Input prompt
+			}
+		}
+	}()
+
 	// Wait for user input to stop
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
@@ -180,22 +209,20 @@ func scanNetworks(monitorInterface string) []Network {
 		if text == "s" || text == "S" {
 			break
 		}
-		fmt.Println("[!] Press 's' and Enter to stop scanning")
 	}
+
+	// Stop UI updater
+	stopUI <- true
+	time.Sleep(500 * time.Millisecond) // Give time for UI goroutine to exit
 
 	// Kill the process
 	cmd.Process.Kill()
 	cmd.Wait()
 
-	// Parse the CSV
-	csvFile := tmpPrefix + "-01.csv"
-
-	// Wait a moment for file write to finish
-	time.Sleep(1 * time.Second)
-
+	// Parse the final CSV
 	networks, err := parseAirodumpCSV(csvFile)
 	if err != nil {
-		fmt.Printf("[-] Error parsing scan results (%s): %v\n", csvFile, err)
+		fmt.Printf("\n[-] Error parsing scan results (%s): %v\n", csvFile, err)
 		return []Network{}
 	}
 
@@ -203,6 +230,23 @@ func scanNetworks(monitorInterface string) []Network {
 	os.Remove(csvFile)
 
 	return networks
+}
+
+func printNetworkTable(networks []Network) {
+	fmt.Println("┌────┬────────────────────┬──────────────┬─────────┬────────┐")
+	fmt.Println("│ ID │ BSSID              │ ESSID        │ Channel │ Signal │")
+	fmt.Println("├────┼────────────────────┼──────────────┼─────────┼────────┤")
+
+	for _, net := range networks {
+		// Truncate ESSID if too long
+		essid := net.ESSID
+		if len(essid) > 12 {
+			essid = essid[:12]
+		}
+		fmt.Printf("│ %2d │ %17s │ %-12s │ %7s │ %6s │\n",
+			net.ID, net.BSSID, essid, net.Channel, net.Signal)
+	}
+	fmt.Println("└────┴────────────────────┴──────────────┴─────────┴────────┘")
 }
 
 func parseAirodumpCSV(filename string) ([]Network, error) {
@@ -281,15 +325,7 @@ func parseAirodumpCSV(filename string) ([]Network, error) {
 
 func selectTargetNetwork(networks []Network) Network {
 	fmt.Println("\n[+] Available Networks:")
-	fmt.Println("┌────┬────────────────────┬──────────────┬─────────┬────────┐")
-	fmt.Println("│ ID │ BSSID              │ ESSID        │ Channel │ Signal │")
-	fmt.Println("├────┼────────────────────┼──────────────┼─────────┼────────┤")
-
-	for _, net := range networks {
-		fmt.Printf("│ %2d │ %17s │ %-12s │ %7s │ %6s │\n",
-			net.ID, net.BSSID, net.ESSID, net.Channel, net.Signal)
-	}
-	fmt.Println("└────┴────────────────────┴──────────────┴─────────┴────────┘")
+	printNetworkTable(networks)
 
 	fmt.Print("\nSelect target network ID: ")
 	reader := bufio.NewReader(os.Stdin)
