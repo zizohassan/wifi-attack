@@ -23,12 +23,24 @@ type Network struct {
 }
 
 func main() {
+	// Clear screen for a fresh start
+	fmt.Print("\033[H\033[2J")
+
+	// Cyan color for the banner
+	fmt.Println("\033[1;36m")
 	fmt.Println(`
-╔══════════════════════════════════════════════╗
-║    WiFi Penetration Testing Tool            ║
-║    Created with Go                          ║
-╚══════════════════════════════════════════════╝
-	`)
+ __          ___ ______ _    _  _   _            _    
+ \ \        / (_)  ____(_)  | || | | |          | |   
+  \ \  /\  / / _| |__   _   | || | | | __ _  ___| | __
+   \ \/  \/ / | |  __| | |  | || |_| |/ _` + "`" + ` |/ __| |/ /
+    \  /\  /  | | |    | |  |__   _| | (_| | (__|   < 
+     \/  \/   |_|_|    |_|     |_| |_|\__,_|\___|_|\_\
+                                                      
+       [ WiFi Penetration Testing Tool ]
+           [ Created by Abdelaziz ]
+        [ (c) 2026 - All Rights Reserved ]
+`)
+	fmt.Println("\033[0m")
 
 	// Step 1: Kill conflicting processes
 	killConflictingProcesses()
